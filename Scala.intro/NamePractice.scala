@@ -11,9 +11,13 @@ case class ErrorBody(code: String, message: String, requestId: String) derives R
 case class ErrorResponse(error: ErrorBody) derives ReadWriter
 
 object NameServer extends cask.MainRoutes:
+  private val appLogger = org.slf4j.LoggerFactory.getLogger("NameServer")
+
   @cask.get("/api/name")
   def giveName() =
     val requestId = java.util.UUID.randomUUID().toString
+    
+
     val response = NameResponse("Salah")
     cask.Response(
       write(response),
@@ -43,6 +47,35 @@ object NameServer extends cask.MainRoutes:
       headers = Seq("Content-Type" -> "text/javascript; charset=utf-8")
     )
 
+  override def handleEndpointError(
+      routes: cask.main.Routes,
+      endpoint: cask.router.EndpointMetadata[?],
+      error: cask.router.Result.Error,
+      request: cask.Request
+  ): cask.Response[cask.Response.Data] =
+    error match
+      case cask.router.Result.Error.Exception(cause) =>
+        val id = java.util.UUID.randomUUID().toString
+
+        appLogger.atError().setCause(cause)
+          .addKeyValue("event", "request_failed")
+          .addKeyValue("requestId", id)
+          .log("Request failed")
+
+        val body = ErrorResponse(
+          ErrorBody("INTERNAL_ERROR", "Something went wrong", id)
+        )
+        cask.Response(
+          write(body),
+          statusCode = 500,
+          headers = Seq(
+            "Content-Type" -> "application/json",
+            "X-Request-Id" -> id
+          )
+        )
+      case other =>
+        super.handleEndpointError(routes, endpoint, other, request)
+
   override def handleNotFound(request: cask.Request): cask.Response[cask.Response.Data] =
     val path = request.exchange.getRequestPath
     if path.startsWith("/api/") then
@@ -53,15 +86,12 @@ object NameServer extends cask.MainRoutes:
       cask.Response(
         write(error),
         statusCode = 404,
-        headers = Seq("Content-Type" -> "application/json", "X-Request-Id" -> requestId)
+        headers = Seq(
+          "Content-Type" -> "application/json",
+          "X-Request-Id" -> requestId
+        )
       )
     else super.handleNotFound(request)
-
-  private val appLogger = org.slf4j.LoggerFactory.getLogger("NameServer")
-  appLogger.atInfo()
-    .addKeyValue("event", "app_started")
-    .addKeyValue("port", port)
-    .log("Name server starting")  
 
   override def defaultHandler: io.undertow.server.HttpHandler =
     val routes = super.defaultHandler
@@ -82,5 +112,10 @@ object NameServer extends cask.MainRoutes:
         finally next.proceed()
       }
       routes.handleRequest(exchange)
+
+  appLogger.atInfo()
+    .addKeyValue("event", "app_started")
+    .addKeyValue("port", port)
+    .log("Name server starting")
 
   initialize()
