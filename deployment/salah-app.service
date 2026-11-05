@@ -1,0 +1,18 @@
+[Unit]
+Description=Salah Scala workshop app
+After=network.target
+
+[Service]
+User=app
+Group=app
+WorkingDirectory=/opt/salah-app
+Environment=HOST=0.0.0.0
+Environment=DISPLAY_NAME=Salah
+ExecStart=/usr/bin/java -Xmx512m -jar /opt/salah-app/app.jar
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

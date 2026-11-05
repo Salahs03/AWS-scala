@@ -6,19 +6,29 @@
 
 import upickle.default.{ReadWriter, write}
 
+case class AppConfig(displayName: String, host: String)
 case class NameResponse(name: String) derives ReadWriter
 case class ErrorBody(code: String, message: String, requestId: String) derives ReadWriter
 case class ErrorResponse(error: ErrorBody) derives ReadWriter
 
 object NameServer extends cask.MainRoutes:
   private val appLogger = org.slf4j.LoggerFactory.getLogger("NameServer")
+    private val config = AppConfig(
+    sys.env.get("DISPLAY_NAME").filter(_.trim.nonEmpty).getOrElse {
+      appLogger.error("Missing required environment variable DISPLAY_NAME")
+      sys.exit(1)
+    },
+    sys.env.get("HOST").getOrElse("localhost")
+  )
+
+  override def host: String = config.host
 
   @cask.get("/api/name")
   def giveName() =
     val requestId = java.util.UUID.randomUUID().toString
     
 
-    val response = NameResponse("Salah")
+    val response = NameResponse(config.displayName)
     cask.Response(
       write(response),
       headers = Seq(
