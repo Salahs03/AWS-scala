@@ -1,25 +1,10 @@
-//> using dep "com.lihaoyi::upickle:4.4.3"
-//> using dep "com.lihaoyi::cask:0.11.3"
-//> using dep "ch.qos.logback:logback-classic:1.6.6"
-//> using dep "net.logstash.logback:logstash-logback-encoder:9.0"
-//> using resourceDir "resources"
+package http
 
-import upickle.default.{ReadWriter, write}
+import upickle.default.write
+import config.AppConfig
 
-case class AppConfig(displayName: String, host: String)
-case class NameResponse(name: String) derives ReadWriter
-case class ErrorBody(code: String, message: String, requestId: String) derives ReadWriter
-case class ErrorResponse(error: ErrorBody) derives ReadWriter
-
-object NameServer extends cask.MainRoutes:
+class NameServer(config: AppConfig) extends cask.MainRoutes:
   private val appLogger = org.slf4j.LoggerFactory.getLogger("NameServer")
-    private val config = AppConfig(
-    sys.env.get("DISPLAY_NAME").filter(_.trim.nonEmpty).getOrElse {
-      appLogger.error("Missing required environment variable DISPLAY_NAME")
-      sys.exit(1)
-    },
-    sys.env.get("HOST").getOrElse("localhost")
-  )
 
   override def host: String = config.host
 
@@ -105,7 +90,12 @@ object NameServer extends cask.MainRoutes:
 
   override def defaultHandler: io.undertow.server.HttpHandler =
     val routes = super.defaultHandler
-    exchange =>
+        exchange =>
+      exchange.getResponseHeaders.put(
+        new io.undertow.util.HttpString("X-Request-Id"),
+        java.util.UUID.randomUUID().toString
+      )
+
       val started = System.nanoTime()
       exchange.addExchangeCompleteListener { (done, next) =>
         try
