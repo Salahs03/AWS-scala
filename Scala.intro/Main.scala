@@ -7,9 +7,19 @@
 
 import config.AppConfig
 import http.NameServer
+import metadata.{InstanceMetadata, ServerIdentity}
 
 object Main:
   def main(args: Array[String]): Unit =
     val config = AppConfig.load()
-    val server = new NameServer(config)
+    val logger = org.slf4j.LoggerFactory.getLogger("Main")
+
+    val identity = InstanceMetadata.fetch() match
+      case Right(found) =>
+        found
+      case Left(_) =>
+        logger.info("EC2 metadata unavailable; using local server identity")
+        ServerIdentity("local", "local")
+
+    val server = new NameServer(config, identity)
     server.main(args)

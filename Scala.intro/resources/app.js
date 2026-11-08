@@ -15,3 +15,26 @@ button.addEventListener("click", async () => {
     `Request ID: ${requestId}`,
   ].join("\n");
 });
+const serverButton = document.getElementById("which-server");
+const serverPanel = document.getElementById("server-response");
+
+serverButton.addEventListener("click", async () => {
+  serverPanel.textContent = "Checking...";
+
+  try {
+    const response = await fetch("/api/whoami");
+
+    if (!response.ok) {
+      throw new Error(`Request failed: HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    serverPanel.textContent = [
+      `Server: ${data.serverId}`,
+      `Availability Zone: ${data.availabilityZone}`,
+    ].join("\n");
+  } catch (error) {
+    serverPanel.textContent = `Could not get server identity: ${error.message}`;
+  }
+});

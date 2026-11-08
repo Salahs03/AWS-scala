@@ -10,4 +10,9 @@ case class ErrorBody(
     requestId: String
 ) derives ReadWriter
 
+case class WhoAmIResponse(
+    serverId: String,
+    availabilityZone: String
+) derives ReadWriter
+
 case class ErrorResponse(error: ErrorBody) derives ReadWriter

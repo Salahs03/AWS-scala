@@ -24,12 +24,19 @@ class NameApiTests extends munit.FunSuite:
       try server.stop()
       finally app.executionContext.shutdown()
 
-  private def get(url: String): (Int, String, String) =
+  private def get(
+      url: String,
+      headers: Map[String, String] = Map.empty
+  ): (Int, String, String) =
     val connection = URI.create(url).toURL
       .openConnection().asInstanceOf[HttpURLConnection]
 
     connection.setConnectTimeout(5000)
     connection.setReadTimeout(5000)
+
+    headers.foreach { case (name, value) =>
+      connection.setRequestProperty(name, value)
+    }
 
     try
       val status = connection.getResponseCode
@@ -73,7 +80,7 @@ class NameApiTests extends munit.FunSuite:
     }
   }
 
-    test("Separate requests receive different request IDs") {
+  test("Separate requests receive different request IDs") {
     withServer { baseUrl =>
       val (_, _, firstId) = get(s"$baseUrl/api/name")
       val (_, _, secondId) = get(s"$baseUrl/api/name")
@@ -94,5 +101,52 @@ class NameApiTests extends munit.FunSuite:
           requestId.nonEmpty,
           s"$path must include X-Request-Id"
         )
+    }
+  }
+
+  test("GET /health returns 200 and status ok") {
+    withServer { baseUrl =>
+      val (status, body, requestId) = get(s"$baseUrl/health")
+
+      assertEquals(status, 200)
+      assertEquals(ujson.read(body)("status").str, "ok")
+      assert(requestId.nonEmpty, "Response must include X-Request-Id")
+    }
+  }
+
+  test("GET /api/whoami returns local server identity") {
+    withServer { baseUrl =>
+      val (status, body, requestId) = get(s"$baseUrl/api/whoami")
+      val json = ujson.read(body)
+
+      assertEquals(status, 200)
+      assertEquals(json("serverId").str, "local")
+      assertEquals(json("availabilityZone").str, "local")
+      assert(requestId.nonEmpty, "Response must include X-Request-Id")
+    }
+  }
+
+  test("AWS trace ID is preserved in success and error responses") {
+    withServer { baseUrl =>
+      val traceId = "1-67891233-abcdef012345678912345678"
+      val headers = Map(
+        "X-Amzn-Trace-Id" -> s"Root=$traceId;Sampled=1"
+      )
+
+      val (successStatus, _, successId) =
+        get(s"$baseUrl/api/name", headers)
+
+      assertEquals(successStatus, 200)
+      assertEquals(successId, traceId)
+
+      val (errorStatus, errorBody, errorId) =
+        get(s"$baseUrl/api/does-not-exist", headers)
+
+      assertEquals(errorStatus, 404)
+      assertEquals(errorId, traceId)
+      assertEquals(
+        ujson.read(errorBody)("error")("requestId").str,
+        traceId
+      )
     }
   }
