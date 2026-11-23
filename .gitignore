@@ -4,3 +4,12 @@
 .vscode/
 .idea/
 *.jar
+
+.DS_Store
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+artifacts/
+Scala.intro/MessageAp

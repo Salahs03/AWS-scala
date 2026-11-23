@@ -2,12 +2,36 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>Give Name</title>
+    <title>Scala Workshop</title>
   </head>
   <body>
     <h1>Name</h1>
     <button id="give-name">Give name</button>
     <pre id="response"></pre>
+
+    <section>
+      <h2>Which server?</h2>
+      <button id="which-server">Which server?</button>
+      <pre id="server-response"></pre>
+    </section>
+
+    <section>
+      <h2>Queue</h2>
+
+      <label for="message-text">Your message</label>
+      <input
+        id="message-text"
+        type="text"
+        maxlength="500"
+        placeholder="Type a message"
+      >
+
+      <button id="send-message">Send message</button>
+      <button id="read-message">Read message</button>
+
+      <pre id="queue-response" aria-live="polite"></pre>
+    </section>
+
     <script src="/app.js"></script>
   </body>
 </html>
