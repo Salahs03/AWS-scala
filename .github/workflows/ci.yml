@@ -1,0 +1,64 @@
+name: Test and package Scala workshop
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: workshop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: VirtusLab/scala-cli-setup@v1
+        with:
+          scala-cli-version: 1.17.1
+      - name: Test and build JAR
+        run: bash scripts/check.sh
+      - name: Build Linux container
+        run: docker build --platform linux/amd64 -t salah-app:local .
+      - name: Exercise container and graceful shutdown
+        run: python3 scripts/container-smoke.py salah-app:local
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: app.jar
+          retention-days: 7
+
+  publish:
+    # Explicit opt-in; a normal push never provisions or resumes AWS resources.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.ENABLE_ECR_PUBLISH == 'true'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: eu-west-2
+      ECR_REPOSITORY: salah-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-west-2
+      - id: login
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Publish immutable commit image (no ECS deployment)
+        env:
+          REGISTRY: ${{ steps.login.outputs.registry }}
+        run: |
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$GITHUB_SHA" >/dev/null 2>&1; then
+            echo "Commit image already exists; keeping the immutable image."
+          else
+            docker build --platform linux/amd64 -t "$REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" .
+            docker push "$REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
+          fi
