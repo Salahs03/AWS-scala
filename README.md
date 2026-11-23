@@ -1,43 +1,40 @@
 # Salah's Scala + AWS workshop
 
-This branch adds **Module 5: SQS, messages and queues** to the existing Give Name application.
+This branch adds **Module 6: Containers with ECR and ECS Fargate** to the Module 5 messaging app. It packages the app in Docker, reports ECS task identity, drains requests on shutdown and provides automated build checks and deployment templates.
 
-The app can send and receive messages through an in-memory queue locally, or Amazon SQS on AWS. Its web page includes Send message and Read message buttons. Existing name, health, identity and request-tracing routes remain available.
-
-## Run and test locally
-
-From the repository root:
+## Run and verify locally
 
 ```sh
 DISPLAY_NAME=Salah APP_ENV=local scala run Scala.intro --main-class Main --server=false
 ```
 
-Open <http://localhost:8080/>. Local messages disappear when the app stops. Stop any older server using port 8080 before starting this one.
+Open http://localhost:8080/. Stop an older local server first if it uses port 8080.
 
 ```sh
-scala test Scala.intro --server=false
-scala --power package Scala.intro --assembly --main-class Main --server=false -o app.jar --force
+bash scripts/check.sh
+docker build --platform linux/amd64 -t salah-app:module-06 .
+python3 scripts/container-smoke.py salah-app:module-06
 ```
 
-Run the package command only after tests pass. The JAR and build caches are excluded from Git.
+The check script tests before assembling app.jar. The JAR/build caches stay outside Git. The container check uses in-memory messaging and removes its own container.
 
 ## Main files
 
 | File | Purpose |
 |---|---|
-| `Scala.intro/Main.scala` | Starts the app and selects the local queue or SQS |
+| `Scala.intro/Main.scala` | Loads settings, selects messaging and starts the server |
 | `Scala.intro/config/AppConfig.scala` | Validates environment settings |
-| `Scala.intro/http/NameServer.scala` | Handles API requests and logs results |
-| `Scala.intro/http/Responses.scala` | Defines JSON response structures |
-| `Scala.intro/queue/MessageQueue.scala` | Shared interface, message and error types |
-| `Scala.intro/queue/InMemoryMessageQueue.scala` | Temporary local queue |
-| `Scala.intro/queue/SqsMessageQueue.scala` | Sends, receives and deletes SQS messages |
-| `Scala.intro/resources/` | Web page, browser JavaScript and logging configuration |
-| `Scala.intro/*.test.scala` | HTTP, configuration and queue checks |
-| `deployment/module-05/` | Example settings, scoped IAM policy and deployment instructions |
+| `Scala.intro/http/` | Routes, JSON contracts, tracing and request logs |
+| `Scala.intro/queue/` | In-memory and SQS messaging implementations |
+| `Scala.intro/metadata/ServerMetadata.scala` | Resolves ECS, EC2 or local server identity |
+| `Scala.intro/runtime/ServerRuntime.scala` | Starts HTTP and drains requests during shutdown |
+| `Dockerfile` | Java 21 image running as a non-root user |
+| `scripts/` | Test/package and local container verification |
+| `.github/workflows/ci.yml` | Automated checks and optional ECR publication |
+| `deployment/module-06/` | Reviewed-before-use ECR/IAM/Fargate infrastructure definitions |
 
-See [Module 5 notes](docs/module-05.md) and [deployment steps](deployment/module-05/README.md).
+See [Module 5](docs/module-05.md), [Module 6](docs/module-06.md) and the [Module 6 deployment guide](deployment/module-06/README.md).
 
 ## Status
 
-The Module 5 implementation is prepared for review. Automated checks use local queues and simulated AWS SDK clients. Live SQS permissions, visibility/redelivery and cloud deployment checks remain outstanding. Pushing this branch saves source code to GitHub; it does not deploy or restart AWS resources. Add a completion tag only after the remaining workshop checks pass.
+This is a source checkpoint, not a completed cloud deployment. Live ECR publication, ECS deployment, rolling-update/failure exercises and remaining Module 5 AWS verification are outstanding. AWS resources remain paused. ECR publication requires explicit repository-variable opt-in on main; the workflow never deploys ECS. Add completion tags after the relevant live checks pass.
