@@ -96,3 +96,39 @@ sendButton.addEventListener("click", () => {
 readButton.addEventListener("click", () => {
   makeQueueRequest("/api/messages/receive");
 });
+
+const noteId = document.getElementById("note-id");
+const noteText = document.getElementById("note-text");
+const notePanel = document.getElementById("note-response");
+const saveNoteButton = document.getElementById("save-note");
+const getNoteButton = document.getElementById("get-note");
+
+async function noteRequest(method) {
+  const id = noteId.value.trim();
+  if (!/^[a-z0-9-]{1,64}$/.test(id)) {
+    notePanel.textContent = "Use 1-64 lowercase letters, digits or hyphens for the note ID.";
+    return;
+  }
+  saveNoteButton.disabled = getNoteButton.disabled = true;
+  try {
+    const options = { method };
+    if (method === "PUT") {
+      options.headers = { "Content-Type": "application/json" };
+      options.body = JSON.stringify({ text: noteText.value });
+    }
+    const response = await fetch(`/api/notes/${encodeURIComponent(id)}`, options);
+    const data = await response.json();
+    if (response.ok && method === "GET") noteText.value = data.text;
+    notePanel.textContent = [
+      `Status: ${response.status}`,
+      response.ok ? `Note: ${data.id}\nSaved: ${data.savedAt}\n${data.text}` : data.error.message,
+      `Request ID: ${response.headers.get("X-Request-Id")}`,
+    ].join("\n");
+  } catch (error) {
+    notePanel.textContent = `Could not access note: ${error.message}`;
+  } finally {
+    saveNoteButton.disabled = getNoteButton.disabled = false;
+  }
+}
+saveNoteButton.addEventListener("click", () => noteRequest("PUT"));
+getNoteButton.addEventListener("click", () => noteRequest("GET"));

@@ -1,0 +1,156 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Module 7: private notes bucket and scoped permissions for an existing ECS task role.",
+  "Parameters": {
+    "TaskRoleName": {
+      "Type": "String",
+      "Description": "Existing Module 6 application task role name, not execution role or ARN"
+    },
+    "AllowMissingNoteLookup": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "Allow ListBucket so a nonexistent object returns 404; false is the controlled permission failure exercise"
+    }
+  },
+  "Conditions": {
+    "AllowList": {
+      "Fn::Equals": [
+        {
+          "Ref": "AllowMissingNoteLookup"
+        },
+        "true"
+      ]
+    }
+  },
+  "Resources": {
+    "NotesBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "OwnershipControls": {
+          "Rules": [
+            {
+              "ObjectOwnership": "BucketOwnerEnforced"
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "IgnorePublicAcls": true,
+          "BlockPublicPolicy": true,
+          "RestrictPublicBuckets": true
+        },
+        "Tags": [
+          {
+            "Key": "project",
+            "Value": "salah-workshops"
+          },
+          {
+            "Key": "module",
+            "Value": "07"
+          }
+        ]
+      }
+    },
+    "NotesBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "NotesBucket"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::Sub": "${NotesBucket.Arn}"
+                },
+                {
+                  "Fn::Sub": "${NotesBucket.Arn}/*"
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "NotesPermissions": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": {
+          "Fn::Sub": "${AWS::StackName}-notes"
+        },
+        "Roles": [
+          {
+            "Ref": "TaskRoleName"
+          }
+        ],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetObject",
+                "s3:PutObject"
+              ],
+              "Resource": {
+                "Fn::Sub": "${NotesBucket.Arn}/notes/*"
+              }
+            },
+            {
+              "Fn::If": [
+                "AllowList",
+                {
+                  "Effect": "Allow",
+                  "Action": "s3:ListBucket",
+                  "Resource": {
+                    "Fn::Sub": "${NotesBucket.Arn}"
+                  }
+                },
+                {
+                  "Ref": "AWS::NoValue"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "NotesBucketName": {
+      "Value": {
+        "Ref": "NotesBucket"
+      }
+    },
+    "NotesBucketArn": {
+      "Value": {
+        "Fn::Sub": "${NotesBucket.Arn}"
+      }
+    }
+  }
+}

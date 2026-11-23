@@ -32,6 +32,17 @@
       <pre id="queue-response" aria-live="polite"></pre>
     </section>
 
+    <section>
+      <h2>Notes</h2>
+      <p>Save a note by ID, then load it again. Saving the same ID replaces its contents.</p>
+      <label for="note-id">Note ID</label>
+      <input id="note-id" maxlength="64" pattern="[a-z0-9-]{1,64}" placeholder="my-first-note">
+      <label for="note-text">Note text</label>
+      <textarea id="note-text" maxlength="10000" rows="5"></textarea>
+      <button id="save-note">Save note</button>
+      <button id="get-note">Get note</button>
+      <pre id="note-response" aria-live="polite"></pre>
+    </section>
     <script src="/app.js"></script>
   </body>
 </html>

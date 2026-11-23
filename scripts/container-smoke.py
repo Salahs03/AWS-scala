@@ -37,14 +37,15 @@ try:
     assert request("/api/messages", "POST", {"text": "Container message"})[0] == 202
     assert request("/api/messages/receive", "POST")[1]["text"] == "Container message"
     assert request("/api/messages/receive", "POST")[0] == 204
-    status, name, headers = request("/api/name")
-    assert status == 200 and name == {"name": "Salah"}
+    assert request("/api/notes/smoke", "PUT", {"text": "Saved from Docker"})[0] == 200
+    status, note, headers = request("/api/notes/smoke")
+    assert status == 200 and note["text"] == "Saved from Docker"
     assert headers.get("X-Request-Id")
     docker("stop", "--time", "30", container)
     logs = docker("logs", container)
     assert '"event":"app_stopping"' in logs and '"event":"app_stopped"' in logs
     assert docker("inspect", "--format", "{{.State.ExitCode}}", container) in ("0", "143")
-    print("PASS: health, identity, queue, non-root user and SIGTERM shutdown")
+    print("PASS: health, identity, queue, notes, non-root user and SIGTERM shutdown")
 except Exception:
     print(docker("logs", container), file=sys.stderr)
     raise

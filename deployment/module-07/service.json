@@ -1,0 +1,319 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Module 7: update the existing Module 6 service with a notes-enabled image and NOTES_BUCKET. ALB is billable even at zero tasks.",
+  "Parameters": {
+    "FoundationStack": {
+      "Type": "String",
+      "Default": "salah-module-06-foundation"
+    },
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id"
+    },
+    "PublicSubnetA": {
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "PublicSubnetB": {
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "AllowedClientCidr": {
+      "Type": "String",
+      "Description": "Your public IPv4 /32 for HTTP access; change deliberately if sharing the demo"
+    },
+    "ImageUri": {
+      "Type": "String",
+      "Description": "ECR image URI with immutable commit tag or sha256 digest"
+    },
+    "QueueUrl": {
+      "Type": "String"
+    },
+    "DisplayName": {
+      "Type": "String",
+      "Default": "Salah"
+    },
+    "DesiredCount": {
+      "Type": "Number",
+      "Default": 0,
+      "MinValue": 0,
+      "MaxValue": 2
+    },
+    "NotesBucket": {
+      "Type": "String",
+      "MinLength": 3,
+      "Description": "NotesBucketName output of the separate Module 7 notes stack"
+    }
+  },
+  "Resources": {
+    "Cluster": {
+      "Type": "AWS::ECS::Cluster"
+    },
+    "AlbSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Workshop HTTP entry point",
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 80,
+            "ToPort": 80,
+            "CidrIp": {
+              "Ref": "AllowedClientCidr"
+            }
+          }
+        ]
+      }
+    },
+    "AppSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Only ALB may reach the app",
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 8080,
+            "ToPort": 8080,
+            "SourceSecurityGroupId": {
+              "Ref": "AlbSecurityGroup"
+            }
+          }
+        ]
+      }
+    },
+    "Alb": {
+      "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      "Properties": {
+        "Type": "application",
+        "Scheme": "internet-facing",
+        "Subnets": [
+          {
+            "Ref": "PublicSubnetA"
+          },
+          {
+            "Ref": "PublicSubnetB"
+          }
+        ],
+        "SecurityGroups": [
+          {
+            "Ref": "AlbSecurityGroup"
+          }
+        ]
+      }
+    },
+    "Targets": {
+      "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "Protocol": "HTTP",
+        "Port": 8080,
+        "TargetType": "ip",
+        "HealthCheckPath": "/health",
+        "HealthCheckIntervalSeconds": 30,
+        "HealthCheckTimeoutSeconds": 5,
+        "HealthyThresholdCount": 2,
+        "UnhealthyThresholdCount": 2,
+        "Matcher": {
+          "HttpCode": "200"
+        },
+        "TargetGroupAttributes": [
+          {
+            "Key": "deregistration_delay.timeout_seconds",
+            "Value": "30"
+          }
+        ]
+      }
+    },
+    "Listener": {
+      "Type": "AWS::ElasticLoadBalancingV2::Listener",
+      "Properties": {
+        "LoadBalancerArn": {
+          "Ref": "Alb"
+        },
+        "Port": 80,
+        "Protocol": "HTTP",
+        "DefaultActions": [
+          {
+            "Type": "forward",
+            "TargetGroupArn": {
+              "Ref": "Targets"
+            }
+          }
+        ]
+      }
+    },
+    "Task": {
+      "Type": "AWS::ECS::TaskDefinition",
+      "Properties": {
+        "RequiresCompatibilities": [
+          "FARGATE"
+        ],
+        "NetworkMode": "awsvpc",
+        "Cpu": "256",
+        "Memory": "1024",
+        "RuntimePlatform": {
+          "CpuArchitecture": "X86_64",
+          "OperatingSystemFamily": "LINUX"
+        },
+        "ExecutionRoleArn": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${FoundationStack}-ExecutionRoleArn"
+          }
+        },
+        "TaskRoleArn": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${FoundationStack}-TaskRoleArn"
+          }
+        },
+        "ContainerDefinitions": [
+          {
+            "Name": "salah-app",
+            "Image": {
+              "Ref": "ImageUri"
+            },
+            "Essential": true,
+            "User": "10001:10001",
+            "StopTimeout": 30,
+            "PortMappings": [
+              {
+                "ContainerPort": 8080,
+                "Protocol": "tcp"
+              }
+            ],
+            "Environment": [
+              {
+                "Name": "HOST",
+                "Value": "0.0.0.0"
+              },
+              {
+                "Name": "DISPLAY_NAME",
+                "Value": {
+                  "Ref": "DisplayName"
+                }
+              },
+              {
+                "Name": "APP_ENV",
+                "Value": "aws"
+              },
+              {
+                "Name": "AWS_REGION",
+                "Value": {
+                  "Ref": "AWS::Region"
+                }
+              },
+              {
+                "Name": "QUEUE_URL",
+                "Value": {
+                  "Ref": "QueueUrl"
+                }
+              },
+              {
+                "Name": "NOTES_BUCKET",
+                "Value": {
+                  "Ref": "NotesBucket"
+                }
+              }
+            ],
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Fn::ImportValue": {
+                    "Fn::Sub": "${FoundationStack}-LogGroup"
+                  }
+                },
+                "awslogs-region": {
+                  "Ref": "AWS::Region"
+                },
+                "awslogs-stream-prefix": "ecs"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "Service": {
+      "Type": "AWS::ECS::Service",
+      "DependsOn": "Listener",
+      "Properties": {
+        "Cluster": {
+          "Ref": "Cluster"
+        },
+        "LaunchType": "FARGATE",
+        "PlatformVersion": "LATEST",
+        "TaskDefinition": {
+          "Ref": "Task"
+        },
+        "DesiredCount": {
+          "Ref": "DesiredCount"
+        },
+        "HealthCheckGracePeriodSeconds": 60,
+        "DeploymentConfiguration": {
+          "MinimumHealthyPercent": 100,
+          "MaximumPercent": 200,
+          "DeploymentCircuitBreaker": {
+            "Enable": true,
+            "Rollback": true
+          }
+        },
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "AssignPublicIp": "ENABLED",
+            "Subnets": [
+              {
+                "Ref": "PublicSubnetA"
+              },
+              {
+                "Ref": "PublicSubnetB"
+              }
+            ],
+            "SecurityGroups": [
+              {
+                "Ref": "AppSecurityGroup"
+              }
+            ]
+          }
+        },
+        "LoadBalancers": [
+          {
+            "TargetGroupArn": {
+              "Ref": "Targets"
+            },
+            "ContainerName": "salah-app",
+            "ContainerPort": 8080
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "AppUrl": {
+      "Value": {
+        "Fn::Sub": "http://${Alb.DNSName}"
+      }
+    },
+    "Cluster": {
+      "Value": {
+        "Ref": "Cluster"
+      }
+    },
+    "Service": {
+      "Value": {
+        "Fn::GetAtt": [
+          "Service",
+          "Name"
+        ]
+      }
+    },
+    "TargetGroupArn": {
+      "Value": {
+        "Ref": "Targets"
+      }
+    }
+  }
+}
