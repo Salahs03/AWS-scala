@@ -38,3 +38,61 @@ serverButton.addEventListener("click", async () => {
     serverPanel.textContent = `Could not get server identity: ${error.message}`;
   }
 });
+const messageInput = document.getElementById("message-text");
+const sendButton = document.getElementById("send-message");
+const readButton = document.getElementById("read-message");
+const queuePanel = document.getElementById("queue-response");
+
+async function makeQueueRequest(path, body) {
+  sendButton.disabled = true;
+  readButton.disabled = true;
+  queuePanel.textContent = "Working...";
+
+  const start = performance.now();
+
+  try {
+    const options = {
+      method: "POST",
+    };
+
+    if (body !== undefined) {
+      options.headers = {
+        "Content-Type": "application/json",
+      };
+      options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(path, options);
+
+    const result =
+      response.status === 204
+        ? "No message received."
+        : await response.text();
+
+    const durationMs = Math.round(performance.now() - start);
+    const requestId = response.headers.get("X-Request-Id");
+
+    queuePanel.textContent = [
+      `Status: ${response.status} ${response.statusText}`,
+      result,
+      `Time: ${durationMs} ms`,
+      `Request ID: ${requestId}`,
+    ].join("\n");
+  } catch (error) {
+    queuePanel.textContent =
+      `Could not complete the request: ${error.message}`;
+  } finally {
+    sendButton.disabled = false;
+    readButton.disabled = false;
+  }
+}
+
+sendButton.addEventListener("click", () => {
+  makeQueueRequest("/api/messages", {
+    text: messageInput.value,
+  });
+});
+
+readButton.addEventListener("click", () => {
+  makeQueueRequest("/api/messages/receive");
+});

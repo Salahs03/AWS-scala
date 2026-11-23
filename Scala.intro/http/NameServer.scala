@@ -3,16 +3,157 @@ package http
 import upickle.default.write
 import config.AppConfig
 import metadata.ServerIdentity
+import queue.{MessageQueue, InMemoryMessageQueue}
 
 class NameServer(
     config: AppConfig,
-    identity: ServerIdentity = ServerIdentity("local", "local")
+    identity: ServerIdentity = ServerIdentity("local", "local"),
+    messageQueue: MessageQueue = new InMemoryMessageQueue
 ) extends cask.MainRoutes:
 
   private val appLogger =
     org.slf4j.LoggerFactory.getLogger("NameServer")
 
   override def host: String = config.host
+  override def debugMode: Boolean = false
+
+  private def queueApiError(
+      request: cask.Request,
+      status: Int,
+      code: String,
+      message: String
+  ): cask.Response[String] =
+    val requestId =
+      request.exchange.getResponseHeaders.getFirst("X-Request-Id")
+
+    cask.Response(
+      write(ErrorResponse(ErrorBody(code, message, requestId))),
+      statusCode = status,
+      headers = Seq("Content-Type" -> "application/json")
+    )
+
+  @cask.post("/api/messages")
+  def sendMessage(request: cask.Request): cask.Response[String] =
+    val body = request.text()
+
+    scala.util.Try(ujson.read(body)) match
+      case scala.util.Failure(_) =>
+        queueApiError(
+          request,
+          400,
+          "INVALID_JSON",
+          "Request body must be valid JSON"
+        )
+
+      case scala.util.Success(json) =>
+        val text =
+          json.objOpt
+            .flatMap(_.get("text"))
+            .flatMap(_.strOpt)
+
+        text match
+          case Some(value)
+              if value.trim.nonEmpty && value.length <= 500 =>
+            messageQueue.send(value) match
+              case Right(messageId) =>
+                appLogger.atInfo()
+                  .addKeyValue("event", "message_sent")
+                  .addKeyValue("messageId", messageId)
+                  .addKeyValue("textLength", value.length)
+                  .addKeyValue(
+                    "requestId",
+                    request.exchange.getResponseHeaders
+                      .getFirst("X-Request-Id")
+                  )
+                  .log("Message queued")
+
+                cask.Response(
+                  write(MessageQueuedResponse(messageId, "queued")),
+                  statusCode = 202,
+                  headers = Seq(
+                    "Content-Type" -> "application/json"
+                  )
+                )
+
+              case Left(_) =>
+                appLogger.atError()
+                  .addKeyValue("event", "queue_send_failed")
+                  .addKeyValue(
+                    "requestId",
+                    request.exchange.getResponseHeaders
+                      .getFirst("X-Request-Id")
+                  )
+                  .log("Queue send failed")
+
+                queueApiError(
+                  request,
+                  500,
+                  "INTERNAL_ERROR",
+                  "Unable to send message"
+                )
+
+          case _ =>
+            queueApiError(
+              request,
+              400,
+              "VALIDATION_FAILED",
+              "text must be a non-blank string of at most 500 characters"
+            )
+
+  @cask.post("/api/messages/receive")
+  def receiveMessage(request: cask.Request): cask.Response[String] =
+    messageQueue.receive() match
+      case Right(Some(message)) =>
+        val ageMs = java.time.Duration.between(
+          java.time.Instant.parse(message.sentAt),
+          java.time.Instant.now()
+        ).toMillis
+
+        appLogger.atInfo()
+          .addKeyValue("event", "message_received")
+          .addKeyValue("messageId", message.messageId)
+          .addKeyValue("ageMs", ageMs)
+          .addKeyValue(
+            "requestId",
+            request.exchange.getResponseHeaders
+              .getFirst("X-Request-Id")
+          )
+          .log("Message received")
+
+        cask.Response(
+          write(
+            MessageReceivedResponse(
+              message.messageId,
+              message.text,
+              message.sentAt
+            )
+          ),
+          statusCode = 200,
+          headers = Seq(
+            "Content-Type" -> "application/json"
+          )
+        )
+
+      case Right(None) =>
+        cask.Response("", statusCode = 204)
+
+      case Left(_) =>
+        appLogger.atError()
+          .addKeyValue("event", "queue_receive_failed")
+          .addKeyValue(
+            "requestId",
+            request.exchange.getResponseHeaders
+              .getFirst("X-Request-Id")
+          )
+          .log("Queue receive failed")
+
+        queueApiError(
+          request,
+          500,
+          "INTERNAL_ERROR",
+          "Unable to receive message"
+        )
+
 
   @cask.get("/health")
   def health() =
@@ -35,7 +176,9 @@ class NameServer(
     cask.Response(
       write(response),
       statusCode = 200,
-      headers = Seq("Content-Type" -> "application/json")
+      headers = Seq(
+        "Content-Type" -> "application/json"
+      )
     )
 
   @cask.get("/api/name")
@@ -45,7 +188,9 @@ class NameServer(
     cask.Response(
       write(response),
       statusCode = 200,
-      headers = Seq("Content-Type" -> "application/json")
+      headers = Seq(
+        "Content-Type" -> "application/json"
+      )
     )
 
   @cask.get("/")
@@ -84,7 +229,7 @@ class NameServer(
       case cask.router.Result.Error.Exception(cause) =>
         val requestId =
           request.exchange.getResponseHeaders.getFirst("X-Request-Id")
-          
+
         appLogger.atError()
           .setCause(cause)
           .addKeyValue("event", "request_failed")
@@ -190,10 +335,5 @@ class NameServer(
       }
 
       routes.handleRequest(exchange)
-
-  appLogger.atInfo()
-    .addKeyValue("event", "app_started")
-    .addKeyValue("port", port)
-    .log("Name server starting")
 
   initialize()
