@@ -5,7 +5,8 @@ case class AppConfig(
     host: String,
     appEnv: String = "local",
     awsRegion: Option[String] = None,
-    queueUrl: Option[String] = None
+    queueUrl: Option[String] = None,
+    notesBucket: Option[String] = None
 )
 
 object AppConfig:
@@ -23,7 +24,8 @@ object AppConfig:
           for
             region <- required("AWS_REGION")
             queueUrl <- required("QUEUE_URL")
-          yield AppConfig(displayName, host, mode, Some(region), Some(queueUrl))
+            bucket <- required("NOTES_BUCKET")
+          yield AppConfig(displayName, host, mode, Some(region), Some(queueUrl), Some(bucket))
         case _ => Left("APP_ENV must be either local or aws")
     yield config
 

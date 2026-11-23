@@ -4,11 +4,13 @@ import upickle.default.write
 import config.AppConfig
 import metadata.ServerIdentity
 import queue.{MessageQueue, InMemoryMessageQueue}
+import notes.{NotesStore, InMemoryNotesStore, StorageFailure, InvalidStoredNote}
 
 class NameServer(
     config: AppConfig,
     identity: ServerIdentity = ServerIdentity("local", "local"),
-    messageQueue: MessageQueue = new InMemoryMessageQueue
+    messageQueue: MessageQueue = new InMemoryMessageQueue,
+    notesStore: NotesStore = new InMemoryNotesStore
 ) extends cask.MainRoutes:
 
   private val appLogger =
@@ -154,6 +156,58 @@ class NameServer(
           "Unable to receive message"
         )
 
+
+  private def validNoteId(id: String): Boolean = id.matches("^[a-z0-9-]{1,64}$")
+
+  private def noteError(request: cask.Request, error: notes.StoreError): cask.Response[String] =
+    val reason = error match
+      case StorageFailure(operation) => s"storage_$operation"
+      case InvalidStoredNote => "invalid_stored_note"
+    appLogger.atError().addKeyValue("event", "note_operation_failed")
+      .addKeyValue("reason", reason)
+      .addKeyValue("requestId", request.exchange.getResponseHeaders.getFirst("X-Request-Id"))
+      .log("Note operation failed")
+    queueApiError(request, 500, "INTERNAL_ERROR", "Unable to access note")
+
+  @cask.put("/api/notes/:id")
+  def saveNote(id: String, request: cask.Request): cask.Response[String] =
+    if !validNoteId(id) then
+      queueApiError(request, 400, "INVALID_NOTE_ID", "Use 1-64 lowercase letters, digits or hyphens")
+    else
+      scala.util.Try(ujson.read(request.text())) match
+        case scala.util.Failure(_) =>
+          queueApiError(request, 400, "INVALID_JSON", "Request body must be valid JSON")
+        case scala.util.Success(json) =>
+          json.objOpt.flatMap(_.get("text")).flatMap(_.strOpt) match
+            case Some(text) if text.length > 10000 =>
+              queueApiError(request, 413, "NOTE_TOO_LARGE", "text must not exceed 10000 characters")
+            case Some(text) if text.trim.nonEmpty =>
+              notesStore.put(id, text) match
+                case Right(note) =>
+                  appLogger.atInfo().addKeyValue("event", "note_saved")
+                    .addKeyValue("noteId", id)
+                    .addKeyValue("sizeBytes", text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
+                    .addKeyValue("requestId", request.exchange.getResponseHeaders.getFirst("X-Request-Id"))
+                    .log("Note saved")
+                  cask.Response(write(note), headers = Seq("Content-Type" -> "application/json"))
+                case Left(error) => noteError(request, error)
+            case _ => queueApiError(request, 400, "VALIDATION_FAILED", "text must be a non-blank string")
+
+  @cask.get("/api/notes/:id")
+  def readNote(id: String, request: cask.Request): cask.Response[String] =
+    if !validNoteId(id) then
+      queueApiError(request, 400, "INVALID_NOTE_ID", "Use 1-64 lowercase letters, digits or hyphens")
+    else
+      notesStore.get(id) match
+        case Left(error) => noteError(request, error)
+        case Right(note) =>
+          appLogger.atInfo().addKeyValue("event", "note_read").addKeyValue("noteId", id)
+            .addKeyValue("found", note.nonEmpty)
+            .addKeyValue("requestId", request.exchange.getResponseHeaders.getFirst("X-Request-Id"))
+            .log("Note read")
+          note match
+            case Some(value) => cask.Response(write(value), headers = Seq("Content-Type" -> "application/json"))
+            case None => queueApiError(request, 404, "NOTE_NOT_FOUND", "Note not found")
 
   @cask.get("/health")
   def health() =
